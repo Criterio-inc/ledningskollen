@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import dynamic from "next/dynamic";
+import { QRCodeSVG } from "qrcode.react";
 
 const RadarChart = dynamic(() => import("recharts").then(m => m.RadarChart), { ssr: false });
 const PolarGrid = dynamic(() => import("recharts").then(m => m.PolarGrid), { ssr: false });
@@ -115,7 +116,11 @@ export default function Ledningskollen() {
   const [slideDir, setSlideDir] = useState(1);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const containerRef = useRef(null);
+  const resultRef = useRef(null);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -133,9 +138,33 @@ export default function Ledningskollen() {
     fullMark: 100,
   }));
 
+  const weakest = [...dimScores].sort((a, b) => (a.score / a.max) - (b.score / b.max))[0];
+
   const handleAnswer = (qi, val) => {
     setAnswers(prev => ({ ...prev, [qi]: val }));
   };
+
+  const fetchAiAnalysis = useCallback(async (score, lvl, dims, weak) => {
+    setAiLoading(true);
+    try {
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          totalScore: score,
+          level: lvl,
+          dimScores: dims,
+          weakest: weak,
+        }),
+      });
+      const data = await res.json();
+      setAiAnalysis(data.analysis);
+    } catch {
+      setAiAnalysis("Analysen kunde inte genereras just nu. Kontakta info@curago.se för en personlig genomgång av ert resultat.");
+    } finally {
+      setAiLoading(false);
+    }
+  }, []);
 
   const nextQuestion = () => {
     if (isTransitioning) return;
@@ -149,6 +178,15 @@ export default function Ledningskollen() {
       }, 300);
     } else {
       setPhase("result");
+      const score = Object.values(answers).reduce((a, b) => a + b, 0);
+      const lvl = getLevel(score);
+      const dims = DIMENSIONS.map(d => {
+        const sum = d.questions.reduce((acc, qi) => acc + (answers[qi] || 0), 0);
+        const max = d.questions.length * 5;
+        return { ...d, score: sum, max };
+      });
+      const weak = [...dims].sort((a, b) => (a.score / a.max) - (b.score / b.max))[0];
+      fetchAiAnalysis(score, lvl, dims, weak);
     }
   };
 
@@ -166,6 +204,52 @@ export default function Ledningskollen() {
     setPhase("intro");
     setCurrentQ(0);
     setAnswers({});
+    setAiAnalysis(null);
+  };
+
+  const exportPDF = async () => {
+    setExporting(true);
+    try {
+      const html2canvas = (await import("html2canvas")).default;
+      const { jsPDF } = await import("jspdf");
+
+      const el = resultRef.current;
+      if (!el) return;
+
+      const canvas = await html2canvas(el, {
+        backgroundColor: "#03070C",
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      });
+
+      const imgData = canvas.toDataURL("image/png");
+      const imgWidth = 210;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pageHeight = 297;
+
+      if (imgHeight <= pageHeight) {
+        pdf.addImage(imgData, "PNG", 0, 0, imgWidth, imgHeight);
+      } else {
+        let position = 0;
+        let remaining = imgHeight;
+        while (remaining > 0) {
+          if (position > 0) pdf.addPage();
+          pdf.addImage(imgData, "PNG", 0, -position, imgWidth, imgHeight);
+          position += pageHeight;
+          remaining -= pageHeight;
+        }
+      }
+
+      const date = new Date().toISOString().split("T")[0];
+      pdf.save(`digital-mognad-resultat-${date}.pdf`);
+    } catch (err) {
+      console.error("Export error:", err);
+    } finally {
+      setExporting(false);
+    }
   };
 
   const level = getLevel(totalScore || 10);
@@ -222,7 +306,7 @@ export default function Ledningskollen() {
         </div>
       )}
 
-      {/* ── INTRO ── */}
+      {/* INTRO */}
       {phase === "intro" && (
         <div style={{
           position: "relative", zIndex: 10,
@@ -283,7 +367,7 @@ export default function Ledningskollen() {
         </div>
       )}
 
-      {/* ── QUIZ ── */}
+      {/* QUIZ */}
       {phase === "quiz" && (
         <div style={{
           position: "relative", zIndex: 10,
@@ -366,157 +450,244 @@ export default function Ledningskollen() {
         </div>
       )}
 
-      {/* ── RESULT ── */}
+      {/* RESULT */}
       {phase === "result" && (
         <div style={{
           position: "relative", zIndex: 10,
           padding: "40px 24px 60px", maxWidth: 800, margin: "0 auto",
         }}>
+          {/* Export button top */}
           <div style={{
-            textAlign: "center", marginBottom: 40,
+            display: "flex", justifyContent: "flex-end", marginBottom: 16,
             animation: "fadeInUp 0.6s ease both",
           }}>
-            <div style={{
-              display: "inline-flex", alignItems: "center", gap: 6,
-              background: level.bg, border: `1px solid ${level.color}33`,
-              borderRadius: 100, padding: "6px 16px 6px 12px",
-              fontSize: 12, fontWeight: 600, color: level.color, marginBottom: 24,
+            <button onClick={exportPDF} disabled={exporting} style={{
+              display: "inline-flex", alignItems: "center", gap: 8,
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(113,160,198,0.15)",
+              color: "rgba(255,255,255,0.7)", padding: "10px 20px",
+              borderRadius: 10, fontSize: 13, fontWeight: 600,
+              cursor: exporting ? "wait" : "pointer",
+              transition: "all 0.2s ease",
             }}>
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: level.color }} />
-              Er mognadsnivå
-            </div>
-            <h2 style={{
-              fontFamily: "'Playfair Display', serif",
-              fontSize: "clamp(28px, 4vw, 42px)", fontWeight: 800,
-              lineHeight: 1.15, marginBottom: 8,
-            }}>
-              <span style={{ color: level.color }}>{level.label}</span>
-            </h2>
-            <p style={{ fontSize: 15, color: "rgba(255,255,255,0.5)", maxWidth: 500, margin: "0 auto" }}>
-              {level.desc}
-            </p>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              {exporting ? "Exporterar..." : "Exportera PDF"}
+            </button>
           </div>
 
-          <div style={{
-            display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 24,
-            animation: "fadeInUp 0.6s ease 0.15s both",
-          }}>
+          {/* Exportable content */}
+          <div ref={resultRef}>
             <div style={{
-              background: "rgba(255,255,255,0.03)",
-              border: "1px solid rgba(113,160,198,0.1)",
-              borderRadius: 16, padding: 28,
-              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+              textAlign: "center", marginBottom: 40,
+              animation: "fadeInUp 0.6s ease both",
             }}>
-              <CircularProgress score={totalScore} color={level.color} />
-              <div style={{ marginTop: 16, textAlign: "center" }}>
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>
-                  Totalpoäng
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 4, marginTop: 20, width: "100%" }}>
-                {LEVELS.map(l => (
-                  <div key={l.label} style={{
-                    flex: 1, textAlign: "center", padding: "6px 2px",
-                    background: totalScore >= l.min && totalScore <= l.max ? l.bg : "rgba(255,255,255,0.02)",
-                    border: totalScore >= l.min && totalScore <= l.max ? `1px solid ${l.color}44` : "1px solid transparent",
-                    borderRadius: 6,
-                  }}>
-                    <div style={{ fontSize: 8, fontWeight: 700, color: l.color }}>{l.min}–{l.max}</div>
-                    <div style={{ fontSize: 7, color: "rgba(255,255,255,0.4)", marginTop: 1 }}>{l.label}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div style={{
-              background: "rgba(255,255,255,0.03)",
-              border: "1px solid rgba(113,160,198,0.1)",
-              borderRadius: 16, padding: "20px 12px",
-            }}>
-              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, textAlign: "center", marginBottom: 4 }}>
-                Dimensionsprofil
-              </div>
-              <ResponsiveContainer width="100%" height={220}>
-                <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="70%">
-                  <PolarGrid stroke="rgba(113,160,198,0.1)" />
-                  <PolarAngleAxis
-                    dataKey="subject"
-                    tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }}
-                  />
-                  <PolarRadiusAxis
-                    angle={90} domain={[0, 100]}
-                    tick={false} axisLine={false}
-                  />
-                  <Radar
-                    name="Resultat" dataKey="value"
-                    stroke={level.color} fill={level.color} fillOpacity={0.15}
-                    strokeWidth={2}
-                  />
-                </RadarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div style={{
-            background: "rgba(255,255,255,0.03)",
-            border: "1px solid rgba(113,160,198,0.1)",
-            borderRadius: 16, padding: 28, marginBottom: 24,
-            animation: "fadeInUp 0.6s ease 0.3s both",
-          }}>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 20 }}>
-              Resultat per dimension
-            </div>
-            {dimScores.map((d, i) => {
-              const colors = ["#4ade80", "#60a5fa", "#c084fc", "#D44B36"];
-              return <DimensionBar key={d.key} label={d.label} score={d.score} maxScore={d.max} color={colors[i]} delay={i * 150} />;
-            })}
-          </div>
-
-          {(() => {
-            const weakest = [...dimScores].sort((a, b) => (a.score / a.max) - (b.score / b.max))[0];
-            const pct = Math.round((weakest.score / weakest.max) * 100);
-            return (
               <div style={{
-                background: "rgba(212,75,54,0.06)",
-                border: "1px solid rgba(212,75,54,0.15)",
-                borderRadius: 16, padding: 24, marginBottom: 24,
-                animation: "fadeInUp 0.6s ease 0.4s both",
+                display: "inline-flex", alignItems: "center", gap: 6,
+                background: level.bg, border: `1px solid ${level.color}33`,
+                borderRadius: 100, padding: "6px 16px 6px 12px",
+                fontSize: 12, fontWeight: 600, color: level.color, marginBottom: 24,
               }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#D44B36", marginBottom: 6 }}>
-                  Område att prioritera
-                </div>
-                <p style={{ fontSize: 14, color: "rgba(255,255,255,0.65)", lineHeight: 1.6, margin: 0 }}>
-                  Er lägsta dimension är <strong style={{ color: "#fff" }}>{weakest.label}</strong> ({pct}%).
-                  En fördjupad mognadsmätning kan identifiera de konkreta åtgärder som skapar mest effekt.
-                </p>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: level.color }} />
+                Er mognadsnivå
               </div>
-            );
-          })()}
+              <h2 style={{
+                fontFamily: "'Playfair Display', serif",
+                fontSize: "clamp(28px, 4vw, 42px)", fontWeight: 800,
+                lineHeight: 1.15, marginBottom: 8,
+              }}>
+                <span style={{ color: level.color }}>{level.label}</span>
+              </h2>
+              <p style={{ fontSize: 15, color: "rgba(255,255,255,0.5)", maxWidth: 500, margin: "0 auto" }}>
+                {level.desc}
+              </p>
+            </div>
 
-          <div style={{
-            background: "linear-gradient(135deg, rgba(0,46,91,0.3), rgba(0,46,91,0.1))",
-            border: "1px solid rgba(0,46,91,0.3)",
-            borderRadius: 16, padding: 32, textAlign: "center",
-            animation: "fadeInUp 0.6s ease 0.5s both",
-          }}>
-            <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>
-              Vill ni gå djupare?
-            </h3>
-            <p style={{ fontSize: 14, color: "rgba(255,255,255,0.55)", marginBottom: 24, maxWidth: 460, margin: "0 auto 24px" }}>
-              Boka en fullständig Digital Mognadsmätning med Curago — strukturerade intervjuer, benchmark och en handlingsplan för er ledningsgrupp.
-            </p>
-            <a href="mailto:info@curago.se" style={{
-              display: "inline-block",
-              background: "linear-gradient(135deg, #D44B36, #e8654f)",
-              color: "#fff", padding: "14px 40px", borderRadius: 12,
-              fontSize: 15, fontWeight: 700, textDecoration: "none",
-              boxShadow: "0 4px 24px rgba(212,75,54,0.3)",
+            <div style={{
+              display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 24,
+              animation: "fadeInUp 0.6s ease 0.15s both",
             }}>
-              Kontakta Curago →
-            </a>
+              <div style={{
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(113,160,198,0.1)",
+                borderRadius: 16, padding: 28,
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+              }}>
+                <CircularProgress score={totalScore} color={level.color} />
+                <div style={{ marginTop: 16, textAlign: "center" }}>
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>
+                    Totalpoäng
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 4, marginTop: 20, width: "100%" }}>
+                  {LEVELS.map(l => (
+                    <div key={l.label} style={{
+                      flex: 1, textAlign: "center", padding: "6px 2px",
+                      background: totalScore >= l.min && totalScore <= l.max ? l.bg : "rgba(255,255,255,0.02)",
+                      border: totalScore >= l.min && totalScore <= l.max ? `1px solid ${l.color}44` : "1px solid transparent",
+                      borderRadius: 6,
+                    }}>
+                      <div style={{ fontSize: 8, fontWeight: 700, color: l.color }}>{l.min}–{l.max}</div>
+                      <div style={{ fontSize: 7, color: "rgba(255,255,255,0.4)", marginTop: 1 }}>{l.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(113,160,198,0.1)",
+                borderRadius: 16, padding: "20px 12px",
+              }}>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, textAlign: "center", marginBottom: 4 }}>
+                  Dimensionsprofil
+                </div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="70%">
+                    <PolarGrid stroke="rgba(113,160,198,0.1)" />
+                    <PolarAngleAxis
+                      dataKey="subject"
+                      tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }}
+                    />
+                    <PolarRadiusAxis
+                      angle={90} domain={[0, 100]}
+                      tick={false} axisLine={false}
+                    />
+                    <Radar
+                      name="Resultat" dataKey="value"
+                      stroke={level.color} fill={level.color} fillOpacity={0.15}
+                      strokeWidth={2}
+                    />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div style={{
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(113,160,198,0.1)",
+              borderRadius: 16, padding: 28, marginBottom: 24,
+              animation: "fadeInUp 0.6s ease 0.3s both",
+            }}>
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 20 }}>
+                Resultat per dimension
+              </div>
+              {dimScores.map((d, i) => {
+                const colors = ["#4ade80", "#60a5fa", "#c084fc", "#D44B36"];
+                return <DimensionBar key={d.key} label={d.label} score={d.score} maxScore={d.max} color={colors[i]} delay={i * 150} />;
+              })}
+            </div>
+
+            {(() => {
+              const pct = Math.round((weakest.score / weakest.max) * 100);
+              return (
+                <div style={{
+                  background: "rgba(212,75,54,0.06)",
+                  border: "1px solid rgba(212,75,54,0.15)",
+                  borderRadius: 16, padding: 24, marginBottom: 24,
+                  animation: "fadeInUp 0.6s ease 0.4s both",
+                }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#D44B36", marginBottom: 6 }}>
+                    Område att prioritera
+                  </div>
+                  <p style={{ fontSize: 14, color: "rgba(255,255,255,0.65)", lineHeight: 1.6, margin: 0 }}>
+                    Er lägsta dimension är <strong style={{ color: "#fff" }}>{weakest.label}</strong> ({pct}%).
+                    En fördjupad mognadsmätning kan identifiera de konkreta åtgärder som skapar mest effekt.
+                  </p>
+                </div>
+              );
+            })()}
+
+            {/* AI Analysis */}
+            <div style={{
+              background: "rgba(113,160,198,0.05)",
+              border: "1px solid rgba(113,160,198,0.15)",
+              borderRadius: 16, padding: 28, marginBottom: 24,
+              animation: "fadeInUp 0.6s ease 0.5s both",
+            }}>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8, marginBottom: 16,
+              }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93L12 22" />
+                  <path d="M12 2a4 4 0 0 0-4 4c0 1.95 1.4 3.58 3.25 3.93" />
+                  <path d="M16 16h2a2 2 0 0 1 0 4h-2" />
+                  <path d="M8 16H6a2 2 0 0 0 0 4h2" />
+                  <path d="M9 12h6" />
+                </svg>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5 }}>
+                  AI-analys av ert resultat
+                </div>
+              </div>
+              {aiLoading ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0" }}>
+                  <div style={{
+                    width: 20, height: 20, border: "2px solid rgba(96,165,250,0.3)",
+                    borderTopColor: "#60a5fa", borderRadius: "50%",
+                    animation: "spin 0.8s linear infinite",
+                  }} />
+                  <span style={{ fontSize: 14, color: "rgba(255,255,255,0.5)" }}>Analyserar ert resultat...</span>
+                  <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                </div>
+              ) : aiAnalysis ? (
+                <div style={{ fontSize: 14, color: "rgba(255,255,255,0.7)", lineHeight: 1.7, whiteSpace: "pre-line" }}>
+                  {aiAnalysis}
+                </div>
+              ) : null}
+            </div>
+
+            {/* Contact CTA with QR code */}
+            <div style={{
+              background: "linear-gradient(135deg, rgba(0,46,91,0.3), rgba(0,46,91,0.1))",
+              border: "1px solid rgba(0,46,91,0.3)",
+              borderRadius: 16, padding: 32,
+              display: "flex", alignItems: "center", gap: 32,
+              animation: "fadeInUp 0.6s ease 0.6s both",
+            }}>
+              <div style={{ flex: 1, textAlign: "center" }}>
+                <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>
+                  Vill ni gå djupare?
+                </h3>
+                <p style={{ fontSize: 14, color: "rgba(255,255,255,0.55)", marginBottom: 24, maxWidth: 460, margin: "0 auto 24px" }}>
+                  Boka en fullständig Digital Mognadsmätning med Curago — strukturerade intervjuer, benchmark och en handlingsplan för er ledningsgrupp.
+                </p>
+                <a href="mailto:info@curago.se" style={{
+                  display: "inline-block",
+                  background: "linear-gradient(135deg, #D44B36, #e8654f)",
+                  color: "#fff", padding: "14px 40px", borderRadius: 12,
+                  fontSize: 15, fontWeight: 700, textDecoration: "none",
+                  boxShadow: "0 4px 24px rgba(212,75,54,0.3)",
+                }}>
+                  Kontakta Curago →
+                </a>
+              </div>
+              <div style={{
+                flexShrink: 0, display: "flex", flexDirection: "column",
+                alignItems: "center", gap: 8,
+              }}>
+                <div style={{
+                  background: "#fff", borderRadius: 12, padding: 12,
+                }}>
+                  <QRCodeSVG
+                    value="mailto:info@curago.se"
+                    size={100}
+                    bgColor="#ffffff"
+                    fgColor="#03070C"
+                    level="M"
+                  />
+                </div>
+                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>
+                  info@curago.se
+                </span>
+              </div>
+            </div>
           </div>
 
-          <div style={{ textAlign: "center", marginTop: 24 }}>
+          {/* Non-exportable buttons */}
+          <div style={{ textAlign: "center", marginTop: 24, display: "flex", justifyContent: "center", gap: 16 }}>
             <button onClick={restart} style={{
               background: "transparent", border: "none",
               color: "rgba(255,255,255,0.3)", fontSize: 13, cursor: "pointer",
