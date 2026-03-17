@@ -90,7 +90,16 @@ function SpiderChart({ data, color, size = 220 }) {
       })}
       {/* Labels */}
       {data.map((d, i) => {
-        const [lx, ly] = getPoint(i, 125);
+        const [lx, ly] = getPoint(i, 130);
+        const words = d.subject.split(" ");
+        // Split into max 2 lines if label is long
+        let lines;
+        if (d.subject.length > 12 && words.length >= 2) {
+          const mid = Math.ceil(words.length / 2);
+          lines = [words.slice(0, mid).join(" "), words.slice(mid).join(" ")];
+        } else {
+          lines = [d.subject];
+        }
         return (
           <text
             key={i} x={lx} y={ly}
@@ -98,7 +107,11 @@ function SpiderChart({ data, color, size = 220 }) {
             fill="rgba(255,255,255,0.5)" fontSize="9"
             fontFamily="'Trebuchet MS', sans-serif"
           >
-            {d.subject}
+            {lines.map((line, li) => (
+              <tspan key={li} x={lx} dy={li === 0 ? -(lines.length - 1) * 5 : 11}>
+                {line}
+              </tspan>
+            ))}
           </text>
         );
       })}
@@ -379,8 +392,15 @@ async function generatePDF(totalScore, level, dimScores, radarData, weakest, aiA
   pdf.setFontSize(7);
   pdf.setTextColor(80, 80, 80);
   radarData.forEach((d, i) => {
-    const [lx, ly] = getRadarPoint(i, 135);
-    pdf.text(d.subject, lx, ly, { align: "center" });
+    const [lx, ly] = getRadarPoint(i, 140);
+    const words = d.subject.split(" ");
+    if (d.subject.length > 12 && words.length >= 2) {
+      const mid = Math.ceil(words.length / 2);
+      pdf.text(words.slice(0, mid).join(" "), lx, ly - 2, { align: "center" });
+      pdf.text(words.slice(mid).join(" "), lx, ly + 2, { align: "center" });
+    } else {
+      pdf.text(d.subject, lx, ly, { align: "center" });
+    }
   });
 
   y += boxH + 8;
