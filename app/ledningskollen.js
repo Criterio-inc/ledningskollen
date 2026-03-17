@@ -809,6 +809,17 @@ export default function Ledningskollen() {
               Ingen data sparas — ert resultat stannar hos er.
             </span>
           </div>
+
+          <div style={{
+            position: "absolute", bottom: 24, left: 0, right: 0,
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)" }}>Developed by</span>
+              <CuragoLogo height={13} />
+            </div>
+            <span style={{ fontSize: 9, color: "rgba(255,255,255,0.15)" }}>©Curago AB</span>
+          </div>
         </div>
       )}
       {phase === "quiz" && (
