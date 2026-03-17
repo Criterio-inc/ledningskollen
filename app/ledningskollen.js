@@ -796,10 +796,32 @@ export default function Ledningskollen() {
               </div>
             ))}
           </div>
+
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+            marginTop: 24, animation: "fadeInUp 0.6s ease 0.5s both",
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.25)" }}>
+              Ingen data sparas — ert resultat stannar hos er.
+            </span>
+          </div>
+
+          <div style={{
+            position: "absolute", bottom: 24, left: 0, right: 0,
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)" }}>Developed by</span>
+              <CuragoLogo height={13} />
+            </div>
+            <span style={{ fontSize: 9, color: "rgba(255,255,255,0.15)" }}>©Curago AB</span>
+          </div>
         </div>
       )}
-
-      {/* QUIZ */}
       {phase === "quiz" && (
         <div style={{
           position: "relative", zIndex: 10,
