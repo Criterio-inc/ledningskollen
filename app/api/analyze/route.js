@@ -22,10 +22,11 @@ ${dimScores.map(d => `- ${d.label}: ${d.score}/${d.max} (${Math.round((d.score /
 
 Svagaste område: ${weakest.label} (${Math.round((weakest.score / weakest.max) * 100)}%)
 
-Ge analysen i tre korta stycken:
-1. Sammanfattning av nuläget (2-3 meningar)
-2. Viktigaste styrkan (1-2 meningar)
-3. Rekommenderad nästa steg (2-3 meningar)
+Ge analysen i tre korta stycken med rubrikerna **NULÄGET**, **STYRKAN** och **NÄSTA STEG**. Varje rubrik ska stå på en egen rad med ** runtom.
+
+1. NULÄGET: Sammanfattning av nuläget (2-3 meningar)
+2. STYRKAN: Viktigaste styrkan (1-2 meningar)
+3. NÄSTA STEG: Rekommenderad nästa steg (2-3 meningar)
 
 Var direkt, professionell och undvik tomma floskler. Skriv som ett kort PM till en VD.`;
 

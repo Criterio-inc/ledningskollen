@@ -1,12 +1,15 @@
 import './globals.css'
 
 export const metadata = {
-  title: 'Digitala Ledningskollen | Curago',
+  title: 'Ledningspuls | Curago',
   description: 'På 5 minuter får ni en bild av er digitala styrförmåga. 10 påståenden, omedelbart resultat med er mognadsprofil.',
   openGraph: {
-    title: 'Digitala Ledningskollen | Curago',
+    title: 'Ledningspuls | Curago',
     description: 'Gratis självskattning av er digitala styrförmåga. 10 frågor, 5 minuter, omedelbart resultat.',
     type: 'website',
+  },
+  icons: {
+    icon: '/favicon.ico',
   },
 }
 

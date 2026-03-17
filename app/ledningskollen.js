@@ -45,7 +45,7 @@ function getLevel(score) {
   return LEVELS.find(l => score >= l.min && score <= l.max) || LEVELS[0];
 }
 
-function CircularProgress({ score, maxScore = 50, color, size = 140 }) {
+function CircularProgress({ score, maxScore = 50, color, size = 140, lightMode = false }) {
   const [animatedScore, setAnimatedScore] = useState(0);
   const radius = (size - 16) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -67,7 +67,7 @@ function CircularProgress({ score, maxScore = 50, color, size = 140 }) {
 
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke="rgba(113,160,198,0.1)" strokeWidth="8" />
+      <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke={lightMode ? "#e5e7eb" : "rgba(113,160,198,0.1)"} strokeWidth="8" />
       <circle
         cx={size/2} cy={size/2} r={radius} fill="none"
         stroke={color} strokeWidth="8" strokeLinecap="round"
@@ -79,14 +79,14 @@ function CircularProgress({ score, maxScore = 50, color, size = 140 }) {
       <text x={size/2} y={size/2 - 6} textAnchor="middle" fill={color} fontSize="32" fontWeight="800">
         {animatedScore}
       </text>
-      <text x={size/2} y={size/2 + 16} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="12">
+      <text x={size/2} y={size/2 + 16} textAnchor="middle" fill={lightMode ? "#71A0C6" : "rgba(255,255,255,0.4)"} fontSize="12">
         av {maxScore}
       </text>
     </svg>
   );
 }
 
-function DimensionBar({ label, score, maxScore, color, delay = 0 }) {
+function DimensionBar({ label, score, maxScore, color, delay = 0, lightMode = false }) {
   const [width, setWidth] = useState(0);
   useEffect(() => {
     const timer = setTimeout(() => setWidth((score / maxScore) * 100), 100 + delay);
@@ -96,10 +96,10 @@ function DimensionBar({ label, score, maxScore, color, delay = 0 }) {
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-        <span style={{ fontSize: 13, color: "rgba(255,255,255,0.7)" }}>{label}</span>
+        <span style={{ fontSize: 13, color: lightMode ? "#424242" : "rgba(255,255,255,0.7)" }}>{label}</span>
         <span style={{ fontSize: 13, color, fontWeight: 700 }}>{score}/{maxScore}</span>
       </div>
-      <div style={{ height: 8, borderRadius: 4, background: "rgba(113,160,198,0.08)" }}>
+      <div style={{ height: 8, borderRadius: 4, background: lightMode ? "#e5e7eb" : "rgba(113,160,198,0.08)" }}>
         <div style={{
           height: "100%", borderRadius: 4, background: color,
           width: `${width}%`, transition: "width 1s cubic-bezier(0.4,0,0.2,1)"
@@ -107,6 +107,29 @@ function DimensionBar({ label, score, maxScore, color, delay = 0 }) {
       </div>
     </div>
   );
+}
+
+function formatAiAnalysis(text) {
+  if (!text) return null;
+  // Replace **TEXT** with bold spans, split into paragraphs
+  const paragraphs = text.split("\n").filter(line => line.trim());
+  return paragraphs.map((para, i) => {
+    // Replace **...** with bold text
+    const parts = para.split(/\*\*(.*?)\*\*/g);
+    return (
+      <p key={i} style={{ marginBottom: i < paragraphs.length - 1 ? 12 : 0 }}>
+        {parts.map((part, j) =>
+          j % 2 === 1 ? (
+            <strong key={j} style={{ fontWeight: 700, color: "#fff", display: "block", fontSize: 15, marginBottom: 4 }}>
+              {part}
+            </strong>
+          ) : (
+            <span key={j}>{part}</span>
+          )
+        )}
+      </p>
+    );
+  });
 }
 
 export default function Ledningskollen() {
@@ -216,12 +239,21 @@ export default function Ledningskollen() {
       const el = resultRef.current;
       if (!el) return;
 
+      // Apply light mode class for PDF capture
+      el.setAttribute("data-pdf-export", "true");
+
+      // Wait for re-render
+      await new Promise(r => setTimeout(r, 100));
+
       const canvas = await html2canvas(el, {
-        backgroundColor: "#03070C",
+        backgroundColor: "#F2F2F2",
         scale: 2,
         useCORS: true,
         logging: false,
       });
+
+      // Remove light mode
+      el.removeAttribute("data-pdf-export");
 
       const imgData = canvas.toDataURL("image/png");
       const imgWidth = 210;
@@ -244,7 +276,7 @@ export default function Ledningskollen() {
       }
 
       const date = new Date().toISOString().split("T")[0];
-      pdf.save(`digital-mognad-resultat-${date}.pdf`);
+      pdf.save(`ledningspuls-resultat-${date}.pdf`);
     } catch (err) {
       console.error("Export error:", err);
     } finally {
@@ -255,6 +287,9 @@ export default function Ledningskollen() {
   const level = getLevel(totalScore || 10);
 
   if (!mounted) return null;
+
+  // Check if we're in PDF export mode via data attribute
+  const isPdfExport = false; // This is for initial render; the actual PDF uses data-attribute CSS
 
   return (
     <div ref={containerRef} style={{
@@ -286,7 +321,7 @@ export default function Ledningskollen() {
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: 14, fontWeight: 800, color: "#fff", letterSpacing: 1,
           }}>C</div>
-          <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: 0.5 }}>Curago</span>
+          <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: 0.5 }}>Ledningspuls</span>
         </div>
         {phase === "quiz" && (
           <div style={{ fontSize: 12, color: "rgba(255,255,255,0.35)" }}>
@@ -329,7 +364,7 @@ export default function Ledningskollen() {
             fontWeight: 800, lineHeight: 1.1, letterSpacing: "-0.02em", marginBottom: 20,
             animation: "fadeInUp 0.6s ease 0.1s both",
           }}>
-            Digitala<br /><span style={{ color: "#D44B36" }}>Ledningskollen</span>
+            <span style={{ color: "#D44B36" }}>Ledningspuls</span>
           </h1>
 
           <p style={{
@@ -479,13 +514,83 @@ export default function Ledningskollen() {
             </button>
           </div>
 
-          {/* Exportable content */}
+          {/* Exportable content - uses data-pdf-export attribute for light mode during capture */}
+          <style>{`
+            [data-pdf-export="true"] {
+              background: #F2F2F2 !important;
+              color: #424242 !important;
+              padding: 32px !important;
+              border-radius: 0 !important;
+            }
+            [data-pdf-export="true"] * {
+              color: #424242 !important;
+            }
+            [data-pdf-export="true"] [data-pdf-heading] {
+              color: #002E5B !important;
+            }
+            [data-pdf-export="true"] [data-pdf-level-color] {
+              color: var(--level-color) !important;
+            }
+            [data-pdf-export="true"] [data-pdf-card] {
+              background: #ffffff !important;
+              border-color: #e5e7eb !important;
+            }
+            [data-pdf-export="true"] [data-pdf-label] {
+              color: #71A0C6 !important;
+            }
+            [data-pdf-export="true"] [data-pdf-muted] {
+              color: #71A0C6 !important;
+            }
+            [data-pdf-export="true"] [data-pdf-bar-bg] {
+              background: #e5e7eb !important;
+            }
+            [data-pdf-export="true"] [data-pdf-cta] {
+              background: #002E5B !important;
+              border-color: #002E5B !important;
+            }
+            [data-pdf-export="true"] [data-pdf-cta] * {
+              color: #fff !important;
+            }
+            [data-pdf-export="true"] [data-pdf-bold] {
+              color: #002E5B !important;
+            }
+            [data-pdf-export="true"] [data-pdf-accent] {
+              color: #D44B36 !important;
+            }
+            [data-pdf-export="true"] [data-pdf-header] {
+              color: #002E5B !important;
+              font-weight: 700 !important;
+            }
+          `}</style>
           <div ref={resultRef}>
+            {/* PDF Header - only visible in export */}
+            <div data-pdf-heading style={{
+              textAlign: "center", marginBottom: 8, display: "none",
+            }}>
+              <style>{`
+                [data-pdf-export="true"] [data-pdf-title-bar] {
+                  display: block !important;
+                  text-align: center;
+                  margin-bottom: 24px;
+                  padding-bottom: 16px;
+                  border-bottom: 2px solid #002E5B;
+                }
+              `}</style>
+              <div data-pdf-title-bar style={{ display: "none" }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: "#002E5B", fontFamily: "'Playfair Display', serif" }}>
+                  Ledningspuls
+                </div>
+                <div style={{ fontSize: 11, color: "#71A0C6", marginTop: 4 }}>
+                  Digital mognadsmätning &bull; Curago
+                </div>
+              </div>
+            </div>
+
             <div style={{
               textAlign: "center", marginBottom: 40,
               animation: "fadeInUp 0.6s ease both",
             }}>
-              <div style={{
+              <div data-pdf-label style={{
                 display: "inline-flex", alignItems: "center", gap: 6,
                 background: level.bg, border: `1px solid ${level.color}33`,
                 borderRadius: 100, padding: "6px 16px 6px 12px",
@@ -494,14 +599,15 @@ export default function Ledningskollen() {
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: level.color }} />
                 Er mognadsnivå
               </div>
-              <h2 style={{
+              <h2 data-pdf-level-color style={{
                 fontFamily: "'Playfair Display', serif",
                 fontSize: "clamp(28px, 4vw, 42px)", fontWeight: 800,
                 lineHeight: 1.15, marginBottom: 8,
+                "--level-color": level.color,
               }}>
                 <span style={{ color: level.color }}>{level.label}</span>
               </h2>
-              <p style={{ fontSize: 15, color: "rgba(255,255,255,0.5)", maxWidth: 500, margin: "0 auto" }}>
+              <p data-pdf-muted style={{ fontSize: 15, color: "rgba(255,255,255,0.5)", maxWidth: 500, margin: "0 auto" }}>
                 {level.desc}
               </p>
             </div>
@@ -510,7 +616,7 @@ export default function Ledningskollen() {
               display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 24,
               animation: "fadeInUp 0.6s ease 0.15s both",
             }}>
-              <div style={{
+              <div data-pdf-card style={{
                 background: "rgba(255,255,255,0.03)",
                 border: "1px solid rgba(113,160,198,0.1)",
                 borderRadius: 16, padding: 28,
@@ -518,36 +624,36 @@ export default function Ledningskollen() {
               }}>
                 <CircularProgress score={totalScore} color={level.color} />
                 <div style={{ marginTop: 16, textAlign: "center" }}>
-                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>
+                  <div data-pdf-label style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>
                     Totalpoäng
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 4, marginTop: 20, width: "100%" }}>
                   {LEVELS.map(l => (
-                    <div key={l.label} style={{
+                    <div key={l.label} data-pdf-card style={{
                       flex: 1, textAlign: "center", padding: "6px 2px",
                       background: totalScore >= l.min && totalScore <= l.max ? l.bg : "rgba(255,255,255,0.02)",
                       border: totalScore >= l.min && totalScore <= l.max ? `1px solid ${l.color}44` : "1px solid transparent",
                       borderRadius: 6,
                     }}>
-                      <div style={{ fontSize: 8, fontWeight: 700, color: l.color }}>{l.min}–{l.max}</div>
-                      <div style={{ fontSize: 7, color: "rgba(255,255,255,0.4)", marginTop: 1 }}>{l.label}</div>
+                      <div data-pdf-accent style={{ fontSize: 8, fontWeight: 700, color: l.color }}>{l.min}–{l.max}</div>
+                      <div data-pdf-muted style={{ fontSize: 7, color: "rgba(255,255,255,0.4)", marginTop: 1 }}>{l.label}</div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              <div style={{
+              <div data-pdf-card style={{
                 background: "rgba(255,255,255,0.03)",
                 border: "1px solid rgba(113,160,198,0.1)",
                 borderRadius: 16, padding: "20px 12px",
               }}>
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, textAlign: "center", marginBottom: 4 }}>
+                <div data-pdf-label style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, textAlign: "center", marginBottom: 4 }}>
                   Dimensionsprofil
                 </div>
                 <ResponsiveContainer width="100%" height={220}>
                   <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="70%">
-                    <PolarGrid stroke="rgba(113,160,198,0.1)" />
+                    <PolarGrid stroke="rgba(113,160,198,0.2)" />
                     <PolarAngleAxis
                       dataKey="subject"
                       tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }}
@@ -558,7 +664,7 @@ export default function Ledningskollen() {
                     />
                     <Radar
                       name="Resultat" dataKey="value"
-                      stroke={level.color} fill={level.color} fillOpacity={0.15}
+                      stroke={level.color} fill={level.color} fillOpacity={0.25}
                       strokeWidth={2}
                     />
                   </RadarChart>
@@ -566,35 +672,48 @@ export default function Ledningskollen() {
               </div>
             </div>
 
-            <div style={{
+            <div data-pdf-card style={{
               background: "rgba(255,255,255,0.03)",
               border: "1px solid rgba(113,160,198,0.1)",
               borderRadius: 16, padding: 28, marginBottom: 24,
               animation: "fadeInUp 0.6s ease 0.3s both",
             }}>
-              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 20 }}>
+              <div data-pdf-label style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 20 }}>
                 Resultat per dimension
               </div>
               {dimScores.map((d, i) => {
                 const colors = ["#4ade80", "#60a5fa", "#c084fc", "#D44B36"];
-                return <DimensionBar key={d.key} label={d.label} score={d.score} maxScore={d.max} color={colors[i]} delay={i * 150} />;
+                return (
+                  <div key={d.key} style={{ marginBottom: 16 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 13, color: "rgba(255,255,255,0.7)" }}>{d.label}</span>
+                      <span style={{ fontSize: 13, color: colors[i], fontWeight: 700 }}>{d.score}/{d.max}</span>
+                    </div>
+                    <div data-pdf-bar-bg style={{ height: 8, borderRadius: 4, background: "rgba(113,160,198,0.08)" }}>
+                      <div style={{
+                        height: "100%", borderRadius: 4, background: colors[i],
+                        width: `${(d.score / d.max) * 100}%`, transition: "width 1s cubic-bezier(0.4,0,0.2,1)"
+                      }} />
+                    </div>
+                  </div>
+                );
               })}
             </div>
 
             {(() => {
               const pct = Math.round((weakest.score / weakest.max) * 100);
               return (
-                <div style={{
+                <div data-pdf-card style={{
                   background: "rgba(212,75,54,0.06)",
                   border: "1px solid rgba(212,75,54,0.15)",
                   borderRadius: 16, padding: 24, marginBottom: 24,
                   animation: "fadeInUp 0.6s ease 0.4s both",
                 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#D44B36", marginBottom: 6 }}>
+                  <div data-pdf-accent style={{ fontSize: 13, fontWeight: 600, color: "#D44B36", marginBottom: 6 }}>
                     Område att prioritera
                   </div>
                   <p style={{ fontSize: 14, color: "rgba(255,255,255,0.65)", lineHeight: 1.6, margin: 0 }}>
-                    Er lägsta dimension är <strong style={{ color: "#fff" }}>{weakest.label}</strong> ({pct}%).
+                    Er lägsta dimension är <strong data-pdf-bold style={{ color: "#fff" }}>{weakest.label}</strong> ({pct}%).
                     En fördjupad mognadsmätning kan identifiera de konkreta åtgärder som skapar mest effekt.
                   </p>
                 </div>
@@ -602,7 +721,7 @@ export default function Ledningskollen() {
             })()}
 
             {/* AI Analysis */}
-            <div style={{
+            <div data-pdf-card style={{
               background: "rgba(113,160,198,0.05)",
               border: "1px solid rgba(113,160,198,0.15)",
               borderRadius: 16, padding: 28, marginBottom: 24,
@@ -618,7 +737,7 @@ export default function Ledningskollen() {
                   <path d="M8 16H6a2 2 0 0 0 0 4h2" />
                   <path d="M9 12h6" />
                 </svg>
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5 }}>
+                <div data-pdf-label style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5 }}>
                   AI-analys av ert resultat
                 </div>
               </div>
@@ -633,14 +752,14 @@ export default function Ledningskollen() {
                   <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
                 </div>
               ) : aiAnalysis ? (
-                <div style={{ fontSize: 14, color: "rgba(255,255,255,0.7)", lineHeight: 1.7, whiteSpace: "pre-line" }}>
-                  {aiAnalysis}
+                <div style={{ fontSize: 14, color: "rgba(255,255,255,0.7)", lineHeight: 1.7 }}>
+                  {formatAiAnalysis(aiAnalysis)}
                 </div>
               ) : null}
             </div>
 
             {/* Contact CTA with QR code */}
-            <div style={{
+            <div data-pdf-cta style={{
               background: "linear-gradient(135deg, rgba(0,46,91,0.3), rgba(0,46,91,0.1))",
               border: "1px solid rgba(0,46,91,0.3)",
               borderRadius: 16, padding: 32,
@@ -652,7 +771,7 @@ export default function Ledningskollen() {
                   Vill ni gå djupare?
                 </h3>
                 <p style={{ fontSize: 14, color: "rgba(255,255,255,0.55)", marginBottom: 24, maxWidth: 460, margin: "0 auto 24px" }}>
-                  Boka en fullständig Digital Mognadsmätning med Curago — strukturerade intervjuer, benchmark och en handlingsplan för er ledningsgrupp.
+                  Vill ni ta er digitala utvecklingsförmåga vidare och accelerera? Kontakta oss på Curago för en dialog om er utmaning, vilka nyttor vi kan hjälpa er att skapa och vad det kan ge för fördelar åt er verksamhet.
                 </p>
                 <a href="mailto:info@curago.se" style={{
                   display: "inline-block",
@@ -679,7 +798,7 @@ export default function Ledningskollen() {
                     level="M"
                   />
                 </div>
-                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>
+                <span data-pdf-muted style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>
                   info@curago.se
                 </span>
               </div>
