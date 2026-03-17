@@ -1,15 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import dynamic from "next/dynamic";
 import { QRCodeSVG } from "qrcode.react";
-
-const RadarChart = dynamic(() => import("recharts").then(m => m.RadarChart), { ssr: false });
-const PolarGrid = dynamic(() => import("recharts").then(m => m.PolarGrid), { ssr: false });
-const PolarAngleAxis = dynamic(() => import("recharts").then(m => m.PolarAngleAxis), { ssr: false });
-const PolarRadiusAxis = dynamic(() => import("recharts").then(m => m.PolarRadiusAxis), { ssr: false });
-const Radar = dynamic(() => import("recharts").then(m => m.Radar), { ssr: false });
-const ResponsiveContainer = dynamic(() => import("recharts").then(m => m.ResponsiveContainer), { ssr: false });
 
 const QUESTIONS = [
   { id: 1, text: "Vår ledningsgrupp har en gemensam bild av vad digitalisering innebär för vår verksamhet.", dim: 0 },
@@ -40,12 +32,81 @@ const LEVELS = [
 ];
 
 const SCALE_LABELS = ["Instämmer inte alls", "Instämmer i låg grad", "Delvis", "Instämmer i hög grad", "Instämmer helt"];
+const DIM_COLORS = ["#4ade80", "#60a5fa", "#c084fc", "#D44B36"];
 
 function getLevel(score) {
   return LEVELS.find(l => score >= l.min && score <= l.max) || LEVELS[0];
 }
 
-function CircularProgress({ score, maxScore = 50, color, size = 140, lightMode = false }) {
+/* Pure SVG radar/spider chart */
+function SpiderChart({ data, color, size = 220 }) {
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = size * 0.35;
+  const n = data.length;
+  const angleStep = (2 * Math.PI) / n;
+  const startAngle = -Math.PI / 2;
+
+  const getPoint = (index, value) => {
+    const angle = startAngle + index * angleStep;
+    const dist = (value / 100) * r;
+    return [cx + dist * Math.cos(angle), cy + dist * Math.sin(angle)];
+  };
+
+  const gridLevels = [25, 50, 75, 100];
+
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      {/* Grid circles */}
+      {gridLevels.map(level => {
+        const points = Array.from({ length: n }, (_, i) => getPoint(i, level));
+        return (
+          <polygon
+            key={level}
+            points={points.map(p => p.join(",")).join(" ")}
+            fill="none"
+            stroke="rgba(113,160,198,0.15)"
+            strokeWidth="0.5"
+          />
+        );
+      })}
+      {/* Axis lines */}
+      {Array.from({ length: n }, (_, i) => {
+        const [ex, ey] = getPoint(i, 100);
+        return <line key={i} x1={cx} y1={cy} x2={ex} y2={ey} stroke="rgba(113,160,198,0.1)" strokeWidth="0.5" />;
+      })}
+      {/* Data polygon */}
+      <polygon
+        points={data.map((d, i) => getPoint(i, d.value).join(",")).join(" ")}
+        fill={color}
+        fillOpacity="0.2"
+        stroke={color}
+        strokeWidth="2"
+      />
+      {/* Data points */}
+      {data.map((d, i) => {
+        const [px, py] = getPoint(i, d.value);
+        return <circle key={i} cx={px} cy={py} r="3" fill={color} />;
+      })}
+      {/* Labels */}
+      {data.map((d, i) => {
+        const [lx, ly] = getPoint(i, 125);
+        return (
+          <text
+            key={i} x={lx} y={ly}
+            textAnchor="middle" dominantBaseline="middle"
+            fill="rgba(255,255,255,0.5)" fontSize="9"
+            fontFamily="'Trebuchet MS', sans-serif"
+          >
+            {d.subject}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+
+function CircularProgress({ score, maxScore = 50, color, size = 140 }) {
   const [animatedScore, setAnimatedScore] = useState(0);
   const radius = (size - 16) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -67,7 +128,7 @@ function CircularProgress({ score, maxScore = 50, color, size = 140, lightMode =
 
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke={lightMode ? "#e5e7eb" : "rgba(113,160,198,0.1)"} strokeWidth="8" />
+      <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke="rgba(113,160,198,0.1)" strokeWidth="8" />
       <circle
         cx={size/2} cy={size/2} r={radius} fill="none"
         stroke={color} strokeWidth="8" strokeLinecap="round"
@@ -76,51 +137,39 @@ function CircularProgress({ score, maxScore = 50, color, size = 140, lightMode =
         transform={`rotate(-90 ${size/2} ${size/2})`}
         style={{ transition: "stroke-dashoffset 0.1s ease" }}
       />
-      <text x={size/2} y={size/2 - 6} textAnchor="middle" fill={color} fontSize="32" fontWeight="800">
+      <text x={size/2} y={size/2 - 6} textAnchor="middle" fill={color} fontSize="32" fontWeight="800"
+        fontFamily="'Trebuchet MS', sans-serif">
         {animatedScore}
       </text>
-      <text x={size/2} y={size/2 + 16} textAnchor="middle" fill={lightMode ? "#71A0C6" : "rgba(255,255,255,0.4)"} fontSize="12">
+      <text x={size/2} y={size/2 + 16} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="12"
+        fontFamily="'Trebuchet MS', sans-serif">
         av {maxScore}
       </text>
     </svg>
   );
 }
 
-function DimensionBar({ label, score, maxScore, color, delay = 0, lightMode = false }) {
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    const timer = setTimeout(() => setWidth((score / maxScore) * 100), 100 + delay);
-    return () => clearTimeout(timer);
-  }, [score, maxScore, delay]);
-
+function CuragoLogo({ height = 20 }) {
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-        <span style={{ fontSize: 13, color: lightMode ? "#424242" : "rgba(255,255,255,0.7)" }}>{label}</span>
-        <span style={{ fontSize: 13, color, fontWeight: 700 }}>{score}/{maxScore}</span>
-      </div>
-      <div style={{ height: 8, borderRadius: 4, background: lightMode ? "#e5e7eb" : "rgba(113,160,198,0.08)" }}>
-        <div style={{
-          height: "100%", borderRadius: 4, background: color,
-          width: `${width}%`, transition: "width 1s cubic-bezier(0.4,0,0.2,1)"
-        }} />
-      </div>
-    </div>
+    <svg height={height} viewBox="0 0 120 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <text x="0" y="25" fontFamily="'Trebuchet MS', Arial, sans-serif" fontSize="28" fontWeight="800" letterSpacing="-0.5">
+        <tspan fill="#ffffff">Cura</tspan>
+        <tspan fill="#3B7DD8">go</tspan>
+      </text>
+    </svg>
   );
 }
 
 function formatAiAnalysis(text) {
   if (!text) return null;
-  // Replace **TEXT** with bold spans, split into paragraphs
   const paragraphs = text.split("\n").filter(line => line.trim());
   return paragraphs.map((para, i) => {
-    // Replace **...** with bold text
     const parts = para.split(/\*\*(.*?)\*\*/g);
     return (
       <p key={i} style={{ marginBottom: i < paragraphs.length - 1 ? 12 : 0 }}>
         {parts.map((part, j) =>
           j % 2 === 1 ? (
-            <strong key={j} style={{ fontWeight: 700, color: "#fff", display: "block", fontSize: 15, marginBottom: 4 }}>
+            <strong key={j} style={{ fontWeight: 700, color: "#fff", display: "block", fontSize: 15, marginBottom: 4, marginTop: i > 0 ? 8 : 0 }}>
               {part}
             </strong>
           ) : (
@@ -130,6 +179,363 @@ function formatAiAnalysis(text) {
       </p>
     );
   });
+}
+
+/* ---- PDF Export via jsPDF direct drawing ---- */
+async function generatePDF(totalScore, level, dimScores, radarData, weakest, aiAnalysis) {
+  const { jsPDF } = await import("jspdf");
+  const pdf = new jsPDF("p", "mm", "a4");
+  const W = 210;
+  const margin = 20;
+  const contentW = W - 2 * margin;
+  let y = 15;
+
+  const font = "helvetica";
+
+  // Helper: hex to RGB
+  function hexToRgb(hex) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return [r, g, b];
+  }
+
+  // Background
+  pdf.setFillColor(245, 245, 245);
+  pdf.rect(0, 0, 210, 297, "F");
+
+  // Header bar
+  pdf.setFillColor(0, 46, 91);
+  pdf.rect(0, 0, W, 18, "F");
+  pdf.setFont(font, "bold");
+  pdf.setFontSize(14);
+  pdf.setTextColor(255, 255, 255);
+  pdf.text("Ledningspuls", margin, 12);
+  pdf.setFont(font, "normal");
+  pdf.setFontSize(9);
+  pdf.setTextColor(180, 200, 220);
+  pdf.text("Digital mognadsmätning  •  Curago", W - margin, 12, { align: "right" });
+
+  y = 28;
+
+  // Level badge
+  const [lr, lg, lb] = hexToRgb(level.color);
+  pdf.setFillColor(lr, lg, lb);
+  const badgeText = `Er mognadsnivå: ${level.label}`;
+  const badgeW = pdf.getStringUnitWidth(badgeText) * 10 / pdf.internal.scaleFactor + 12;
+  pdf.roundedRect(W / 2 - badgeW / 2, y, badgeW, 8, 4, 4, "F");
+  pdf.setFont(font, "bold");
+  pdf.setFontSize(10);
+  pdf.setTextColor(255, 255, 255);
+  pdf.text(badgeText, W / 2, y + 5.5, { align: "center" });
+  y += 14;
+
+  // Level name
+  pdf.setFont(font, "bold");
+  pdf.setFontSize(28);
+  pdf.setTextColor(lr, lg, lb);
+  pdf.text(level.label, W / 2, y + 8, { align: "center" });
+  y += 16;
+
+  // Level description
+  pdf.setFont(font, "normal");
+  pdf.setFontSize(10);
+  pdf.setTextColor(80, 80, 80);
+  const descLines = pdf.splitTextToSize(level.desc, contentW - 20);
+  pdf.text(descLines, W / 2, y, { align: "center", maxWidth: contentW - 20 });
+  y += descLines.length * 5 + 8;
+
+  // ---- Two-column section: Score circle + Radar chart ----
+  const colW = (contentW - 10) / 2;
+  const boxH = 70;
+
+  // Left box: Total score
+  pdf.setFillColor(255, 255, 255);
+  pdf.roundedRect(margin, y, colW, boxH, 3, 3, "F");
+  pdf.setDrawColor(220, 220, 220);
+  pdf.roundedRect(margin, y, colW, boxH, 3, 3, "S");
+
+  // Draw circular progress
+  const ccx = margin + colW / 2;
+  const ccy = y + 30;
+  const cr = 18;
+  // Background circle
+  pdf.setDrawColor(230, 230, 230);
+  pdf.setLineWidth(2);
+  pdf.circle(ccx, ccy, cr, "S");
+  // Score arc
+  pdf.setDrawColor(lr, lg, lb);
+  pdf.setLineWidth(2.5);
+  const pct = totalScore / 50;
+  const segments = Math.round(pct * 60);
+  for (let i = 0; i < segments; i++) {
+    const a1 = -Math.PI / 2 + (i / 60) * 2 * Math.PI;
+    const a2 = -Math.PI / 2 + ((i + 1) / 60) * 2 * Math.PI;
+    const x1 = ccx + cr * Math.cos(a1);
+    const y1 = ccy + cr * Math.sin(a1);
+    const x2 = ccx + cr * Math.cos(a2);
+    const y2 = ccy + cr * Math.sin(a2);
+    pdf.line(x1, y1, x2, y2);
+  }
+  // Score text
+  pdf.setFont(font, "bold");
+  pdf.setFontSize(20);
+  pdf.setTextColor(lr, lg, lb);
+  pdf.text(String(totalScore), ccx, ccy + 1, { align: "center" });
+  pdf.setFont(font, "normal");
+  pdf.setFontSize(8);
+  pdf.setTextColor(150, 150, 150);
+  pdf.text("av 50", ccx, ccy + 7, { align: "center" });
+
+  // Label
+  pdf.setFont(font, "bold");
+  pdf.setFontSize(8);
+  pdf.setTextColor(120, 120, 120);
+  pdf.text("TOTALPOÄNG", ccx, y + boxH - 8, { align: "center" });
+
+  // Level scale
+  const scaleY = y + boxH - 4;
+  const scaleW = colW - 10;
+  const segW = scaleW / LEVELS.length;
+  LEVELS.forEach((l, i) => {
+    const sx = margin + 5 + i * segW;
+    const [sr, sg, sb] = hexToRgb(l.color);
+    const isActive = totalScore >= l.min && totalScore <= l.max;
+    if (isActive) {
+      pdf.setFillColor(sr, sg, sb);
+      pdf.roundedRect(sx, scaleY, segW - 1, 5, 1, 1, "F");
+      pdf.setFontSize(5);
+      pdf.setTextColor(255, 255, 255);
+    } else {
+      pdf.setFillColor(235, 235, 235);
+      pdf.roundedRect(sx, scaleY, segW - 1, 5, 1, 1, "F");
+      pdf.setFontSize(5);
+      pdf.setTextColor(150, 150, 150);
+    }
+    pdf.text(`${l.min}-${l.max}`, sx + (segW - 1) / 2, scaleY + 3.5, { align: "center" });
+  });
+
+  // Right box: Radar chart
+  const radarX = margin + colW + 10;
+  pdf.setFillColor(255, 255, 255);
+  pdf.roundedRect(radarX, y, colW, boxH, 3, 3, "F");
+  pdf.setDrawColor(220, 220, 220);
+  pdf.roundedRect(radarX, y, colW, boxH, 3, 3, "S");
+
+  pdf.setFont(font, "bold");
+  pdf.setFontSize(8);
+  pdf.setTextColor(120, 120, 120);
+  pdf.text("DIMENSIONSPROFIL", radarX + colW / 2, y + 8, { align: "center" });
+
+  // Draw radar/spider
+  const rcx = radarX + colW / 2;
+  const rcy = y + 40;
+  const rr = 22;
+  const n = radarData.length;
+  const radarAngleStep = (2 * Math.PI) / n;
+  const radarStart = -Math.PI / 2;
+
+  const getRadarPoint = (idx, val) => {
+    const angle = radarStart + idx * radarAngleStep;
+    const dist = (val / 100) * rr;
+    return [rcx + dist * Math.cos(angle), rcy + dist * Math.sin(angle)];
+  };
+
+  // Grid
+  pdf.setDrawColor(200, 210, 220);
+  pdf.setLineWidth(0.2);
+  [25, 50, 75, 100].forEach(lev => {
+    for (let i = 0; i < n; i++) {
+      const [x1, y1] = getRadarPoint(i, lev);
+      const [x2, y2] = getRadarPoint((i + 1) % n, lev);
+      pdf.line(x1, y1, x2, y2);
+    }
+  });
+  // Axes
+  for (let i = 0; i < n; i++) {
+    const [ex, ey] = getRadarPoint(i, 100);
+    pdf.line(rcx, rcy, ex, ey);
+  }
+
+  // Data polygon - draw as lines
+  pdf.setDrawColor(lr, lg, lb);
+  pdf.setLineWidth(0.8);
+  // Fill
+  pdf.setFillColor(lr, lg, lb);
+  // We can't easily fill a polygon in jsPDF so we draw lines and a light overlay
+  for (let i = 0; i < n; i++) {
+    const [x1, y1] = getRadarPoint(i, radarData[i].value);
+    const [x2, y2] = getRadarPoint((i + 1) % n, radarData[(i + 1) % n].value);
+    pdf.line(x1, y1, x2, y2);
+  }
+  // Data points
+  radarData.forEach((d, i) => {
+    const [px, py] = getRadarPoint(i, d.value);
+    pdf.setFillColor(lr, lg, lb);
+    pdf.circle(px, py, 1.2, "F");
+  });
+  // Labels
+  pdf.setFont(font, "normal");
+  pdf.setFontSize(7);
+  pdf.setTextColor(80, 80, 80);
+  radarData.forEach((d, i) => {
+    const [lx, ly] = getRadarPoint(i, 135);
+    pdf.text(d.subject, lx, ly, { align: "center" });
+  });
+
+  y += boxH + 8;
+
+  // ---- Dimension bars ----
+  pdf.setFillColor(255, 255, 255);
+  const barsH = 12 * dimScores.length + 16;
+  pdf.roundedRect(margin, y, contentW, barsH, 3, 3, "F");
+  pdf.setDrawColor(220, 220, 220);
+  pdf.roundedRect(margin, y, contentW, barsH, 3, 3, "S");
+
+  pdf.setFont(font, "bold");
+  pdf.setFontSize(8);
+  pdf.setTextColor(120, 120, 120);
+  pdf.text("RESULTAT PER DIMENSION", margin + 8, y + 8);
+  let barY = y + 14;
+
+  dimScores.forEach((d, i) => {
+    const [dr, dg, db] = hexToRgb(DIM_COLORS[i]);
+    // Label
+    pdf.setFont(font, "normal");
+    pdf.setFontSize(9);
+    pdf.setTextColor(60, 60, 60);
+    pdf.text(d.label, margin + 8, barY + 3);
+    // Score
+    pdf.setFont(font, "bold");
+    pdf.setTextColor(dr, dg, db);
+    pdf.text(`${d.score}/${d.max}`, margin + contentW - 8, barY + 3, { align: "right" });
+    // Bar background
+    const barX = margin + 8;
+    const barW = contentW - 16;
+    pdf.setFillColor(235, 235, 235);
+    pdf.roundedRect(barX, barY + 5, barW, 3, 1.5, 1.5, "F");
+    // Bar fill
+    pdf.setFillColor(dr, dg, db);
+    const fillW = Math.max(2, (d.score / d.max) * barW);
+    pdf.roundedRect(barX, barY + 5, fillW, 3, 1.5, 1.5, "F");
+    barY += 12;
+  });
+
+  y += barsH + 6;
+
+  // ---- Priority area ----
+  const weakPct = Math.round((weakest.score / weakest.max) * 100);
+  pdf.setFillColor(255, 240, 238);
+  pdf.roundedRect(margin, y, contentW, 18, 3, 3, "F");
+  pdf.setFont(font, "bold");
+  pdf.setFontSize(9);
+  pdf.setTextColor(212, 75, 54);
+  pdf.text("Område att prioritera", margin + 8, y + 7);
+  pdf.setFont(font, "normal");
+  pdf.setFontSize(9);
+  pdf.setTextColor(80, 80, 80);
+  const prioText = `Er lägsta dimension är ${weakest.label} (${weakPct}%). En fördjupad mognadsmätning kan identifiera de konkreta åtgärder som skapar mest effekt.`;
+  const prioLines = pdf.splitTextToSize(prioText, contentW - 16);
+  pdf.text(prioLines, margin + 8, y + 13);
+  y += 18 + (prioLines.length > 1 ? prioLines.length * 4 : 0) + 4;
+
+  // Check if we need a new page
+  if (y > 240) {
+    pdf.addPage();
+    pdf.setFillColor(245, 245, 245);
+    pdf.rect(0, 0, 210, 297, "F");
+    y = 20;
+  }
+
+  // ---- AI Analysis ----
+  if (aiAnalysis) {
+    const cleanText = aiAnalysis.replace(/\*\*/g, "");
+    pdf.setFillColor(255, 255, 255);
+    const aiLines = pdf.splitTextToSize(cleanText, contentW - 16);
+    const aiH = Math.max(30, aiLines.length * 4.5 + 18);
+    pdf.roundedRect(margin, y, contentW, aiH, 3, 3, "F");
+    pdf.setDrawColor(220, 220, 220);
+    pdf.roundedRect(margin, y, contentW, aiH, 3, 3, "S");
+
+    pdf.setFont(font, "bold");
+    pdf.setFontSize(8);
+    pdf.setTextColor(120, 120, 120);
+    pdf.text("AI-ANALYS AV ERT RESULTAT", margin + 8, y + 8);
+
+    pdf.setFont(font, "normal");
+    pdf.setFontSize(9);
+    pdf.setTextColor(60, 60, 60);
+
+    // Parse bold sections
+    let textY = y + 15;
+    const paragraphs = aiAnalysis.split("\n").filter(l => l.trim());
+    paragraphs.forEach(para => {
+      const parts = para.split(/\*\*(.*?)\*\*/g);
+      parts.forEach((part, j) => {
+        if (!part.trim()) return;
+        if (j % 2 === 1) {
+          // Bold heading
+          pdf.setFont(font, "bold");
+          pdf.setFontSize(10);
+          pdf.setTextColor(0, 46, 91);
+          if (textY > y + 16) textY += 2;
+          pdf.text(part, margin + 8, textY);
+          textY += 5;
+        } else {
+          pdf.setFont(font, "normal");
+          pdf.setFontSize(9);
+          pdf.setTextColor(60, 60, 60);
+          const wrapped = pdf.splitTextToSize(part.trim(), contentW - 16);
+          wrapped.forEach(line => {
+            if (textY > 280) {
+              pdf.addPage();
+              pdf.setFillColor(245, 245, 245);
+              pdf.rect(0, 0, 210, 297, "F");
+              textY = 20;
+            }
+            pdf.text(line, margin + 8, textY);
+            textY += 4.5;
+          });
+        }
+      });
+    });
+    y = textY + 6;
+  }
+
+  // Check page
+  if (y > 250) {
+    pdf.addPage();
+    pdf.setFillColor(245, 245, 245);
+    pdf.rect(0, 0, 210, 297, "F");
+    y = 20;
+  }
+
+  // ---- CTA box ----
+  pdf.setFillColor(0, 46, 91);
+  pdf.roundedRect(margin, y, contentW, 40, 3, 3, "F");
+  pdf.setFont(font, "bold");
+  pdf.setFontSize(14);
+  pdf.setTextColor(255, 255, 255);
+  pdf.text("Vill ni gå djupare?", margin + contentW / 2, y + 12, { align: "center" });
+  pdf.setFont(font, "normal");
+  pdf.setFontSize(9);
+  pdf.setTextColor(200, 215, 230);
+  const ctaText = "Kontakta oss på Curago för en dialog om er utmaning och hur vi kan hjälpa er att accelerera er digitala utvecklingsförmåga.";
+  const ctaLines = pdf.splitTextToSize(ctaText, contentW - 30);
+  pdf.text(ctaLines, margin + contentW / 2, y + 19, { align: "center", maxWidth: contentW - 30 });
+  pdf.setFont(font, "bold");
+  pdf.setFontSize(10);
+  pdf.setTextColor(212, 75, 54);
+  pdf.text("info@curago.se", margin + contentW / 2, y + 34, { align: "center" });
+
+  // Footer
+  pdf.setFont(font, "normal");
+  pdf.setFontSize(7);
+  pdf.setTextColor(150, 150, 150);
+  const date = new Date().toISOString().split("T")[0];
+  pdf.text(`Genererad ${date}  •  Ledningspuls av Curago  •  curago.se`, W / 2, 290, { align: "center" });
+
+  pdf.save(`ledningspuls-resultat-${date}.pdf`);
 }
 
 export default function Ledningskollen() {
@@ -142,8 +548,6 @@ export default function Ledningskollen() {
   const [aiAnalysis, setAiAnalysis] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const containerRef = useRef(null);
-  const resultRef = useRef(null);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -173,12 +577,7 @@ export default function Ledningskollen() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          totalScore: score,
-          level: lvl,
-          dimScores: dims,
-          weakest: weak,
-        }),
+        body: JSON.stringify({ totalScore: score, level: lvl, dimScores: dims, weakest: weak }),
       });
       const data = await res.json();
       setAiAnalysis(data.analysis);
@@ -195,10 +594,7 @@ export default function Ledningskollen() {
     if (currentQ < QUESTIONS.length - 1) {
       setSlideDir(1);
       setIsTransitioning(true);
-      setTimeout(() => {
-        setCurrentQ(prev => prev + 1);
-        setIsTransitioning(false);
-      }, 300);
+      setTimeout(() => { setCurrentQ(prev => prev + 1); setIsTransitioning(false); }, 300);
     } else {
       setPhase("result");
       const score = Object.values(answers).reduce((a, b) => a + b, 0);
@@ -217,10 +613,7 @@ export default function Ledningskollen() {
     if (isTransitioning || currentQ === 0) return;
     setSlideDir(-1);
     setIsTransitioning(true);
-    setTimeout(() => {
-      setCurrentQ(prev => prev - 1);
-      setIsTransitioning(false);
-    }, 300);
+    setTimeout(() => { setCurrentQ(prev => prev - 1); setIsTransitioning(false); }, 300);
   };
 
   const restart = () => {
@@ -233,50 +626,7 @@ export default function Ledningskollen() {
   const exportPDF = async () => {
     setExporting(true);
     try {
-      const html2canvas = (await import("html2canvas")).default;
-      const { jsPDF } = await import("jspdf");
-
-      const el = resultRef.current;
-      if (!el) return;
-
-      // Apply light mode class for PDF capture
-      el.setAttribute("data-pdf-export", "true");
-
-      // Wait for re-render
-      await new Promise(r => setTimeout(r, 100));
-
-      const canvas = await html2canvas(el, {
-        backgroundColor: "#F2F2F2",
-        scale: 2,
-        useCORS: true,
-        logging: false,
-      });
-
-      // Remove light mode
-      el.removeAttribute("data-pdf-export");
-
-      const imgData = canvas.toDataURL("image/png");
-      const imgWidth = 210;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-      const pdf = new jsPDF("p", "mm", "a4");
-      const pageHeight = 297;
-
-      if (imgHeight <= pageHeight) {
-        pdf.addImage(imgData, "PNG", 0, 0, imgWidth, imgHeight);
-      } else {
-        let position = 0;
-        let remaining = imgHeight;
-        while (remaining > 0) {
-          if (position > 0) pdf.addPage();
-          pdf.addImage(imgData, "PNG", 0, -position, imgWidth, imgHeight);
-          position += pageHeight;
-          remaining -= pageHeight;
-        }
-      }
-
-      const date = new Date().toISOString().split("T")[0];
-      pdf.save(`ledningspuls-resultat-${date}.pdf`);
+      await generatePDF(totalScore, level, dimScores, radarData, weakest, aiAnalysis);
     } catch (err) {
       console.error("Export error:", err);
     } finally {
@@ -288,40 +638,22 @@ export default function Ledningskollen() {
 
   if (!mounted) return null;
 
-  // Check if we're in PDF export mode via data attribute
-  const isPdfExport = false; // This is for initial render; the actual PDF uses data-attribute CSS
-
   return (
-    <div ref={containerRef} style={{
-      minHeight: "100vh", background: "#03070C", color: "#fff",
-      position: "relative", overflow: "hidden",
-    }}>
+    <div style={{ minHeight: "100vh", background: "#03070C", color: "#fff", position: "relative", overflow: "hidden" }}>
       {/* Ambient glow */}
-      <div style={{
-        position: "fixed", top: "-30%", right: "-20%", width: "60vw", height: "60vw",
-        borderRadius: "50%", background: "radial-gradient(circle, rgba(0,46,91,0.15) 0%, transparent 70%)",
-        pointerEvents: "none", zIndex: 0,
-      }} />
-      <div style={{
-        position: "fixed", bottom: "-20%", left: "-10%", width: "40vw", height: "40vw",
-        borderRadius: "50%", background: "radial-gradient(circle, rgba(212,75,54,0.08) 0%, transparent 70%)",
-        pointerEvents: "none", zIndex: 0,
-      }} />
+      <div style={{ position: "fixed", top: "-30%", right: "-20%", width: "60vw", height: "60vw", borderRadius: "50%", background: "radial-gradient(circle, rgba(0,46,91,0.15) 0%, transparent 70%)", pointerEvents: "none", zIndex: 0 }} />
+      <div style={{ position: "fixed", bottom: "-20%", left: "-10%", width: "40vw", height: "40vw", borderRadius: "50%", background: "radial-gradient(circle, rgba(212,75,54,0.08) 0%, transparent 70%)", pointerEvents: "none", zIndex: 0 }} />
 
       {/* Header */}
       <div style={{
-        position: "relative", zIndex: 10, padding: "20px 32px",
+        position: "relative", zIndex: 10, padding: "16px 32px",
         display: "flex", alignItems: "center", justifyContent: "space-between",
         borderBottom: "1px solid rgba(113,160,198,0.08)",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: 8,
-            background: "linear-gradient(135deg, #002E5B, #0a4a8a)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 14, fontWeight: 800, color: "#fff", letterSpacing: 1,
-          }}>C</div>
-          <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: 0.5 }}>Ledningspuls</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <CuragoLogo height={22} />
+          <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.15)" }} />
+          <span style={{ fontSize: 14, fontWeight: 600, color: "rgba(255,255,255,0.5)", letterSpacing: 0.3 }}>Ledningspuls</span>
         </div>
         {phase === "quiz" && (
           <div style={{ fontSize: 12, color: "rgba(255,255,255,0.35)" }}>
@@ -346,7 +678,7 @@ export default function Ledningskollen() {
         <div style={{
           position: "relative", zIndex: 10,
           display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          minHeight: "calc(100vh - 73px)", padding: "40px 24px", textAlign: "center",
+          minHeight: "calc(100vh - 57px)", padding: "40px 24px", textAlign: "center",
         }}>
           <div style={{
             display: "inline-flex", alignItems: "center", gap: 6,
@@ -356,7 +688,7 @@ export default function Ledningskollen() {
             animation: "fadeInUp 0.6s ease both",
           }}>
             <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#D44B36" }} />
-            Gratis verktyg
+            Kostnadsfritt verktyg med AI-analys
           </div>
 
           <h1 style={{
@@ -388,10 +720,7 @@ export default function Ledningskollen() {
             Starta testet →
           </button>
 
-          <div style={{
-            display: "flex", gap: 32, marginTop: 48,
-            animation: "fadeInUp 0.6s ease 0.4s both",
-          }}>
+          <div style={{ display: "flex", gap: 32, marginTop: 48, animation: "fadeInUp 0.6s ease 0.4s both" }}>
             {[["5 min", "Tidsåtgång"], ["10", "Påståenden"], ["Direkt", "Resultat"]].map(([val, label]) => (
               <div key={label} style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 20, fontWeight: 800, color: "#fff" }}>{val}</div>
@@ -407,7 +736,7 @@ export default function Ledningskollen() {
         <div style={{
           position: "relative", zIndex: 10,
           display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          minHeight: "calc(100vh - 75px)", padding: "40px 24px",
+          minHeight: "calc(100vh - 59px)", padding: "40px 24px",
         }}>
           <div style={{
             width: "100%", maxWidth: 640,
@@ -426,8 +755,7 @@ export default function Ledningskollen() {
 
             <h2 style={{
               fontSize: "clamp(20px, 2.5vw, 28px)", fontWeight: 600,
-              lineHeight: 1.4, marginBottom: 40, color: "#fff",
-              minHeight: 80,
+              lineHeight: 1.4, marginBottom: 40, color: "#fff", minHeight: 80,
             }}>
               {QUESTIONS[currentQ].text}
             </h2>
@@ -448,8 +776,7 @@ export default function Ledningskollen() {
                       width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
                       display: "flex", alignItems: "center", justifyContent: "center",
                       background: selected ? "#D44B36" : "rgba(113,160,198,0.08)",
-                      fontSize: 14, fontWeight: 700,
-                      transition: "all 0.2s ease",
+                      fontSize: 14, fontWeight: 700, transition: "all 0.2s ease",
                     }}>{val}</div>
                     <span style={{ fontSize: 14, color: selected ? "#fff" : "rgba(255,255,255,0.6)" }}>
                       {SCALE_LABELS[val - 1]}
@@ -465,7 +792,6 @@ export default function Ledningskollen() {
                 color: currentQ === 0 ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.6)",
                 padding: "12px 24px", borderRadius: 10, fontSize: 14, fontWeight: 600,
                 cursor: currentQ === 0 ? "default" : "pointer",
-                transition: "all 0.2s ease",
               }}>← Tillbaka</button>
 
               <button onClick={nextQuestion} disabled={answers[currentQ] === undefined} style={{
@@ -476,7 +802,6 @@ export default function Ledningskollen() {
                 padding: "12px 32px", borderRadius: 10, fontSize: 14, fontWeight: 700,
                 cursor: answers[currentQ] !== undefined ? "pointer" : "default",
                 boxShadow: answers[currentQ] !== undefined ? "0 4px 16px rgba(212,75,54,0.25)" : "none",
-                transition: "all 0.25s ease",
               }}>
                 {currentQ === QUESTIONS.length - 1 ? "Visa resultat →" : "Nästa →"}
               </button>
@@ -487,23 +812,15 @@ export default function Ledningskollen() {
 
       {/* RESULT */}
       {phase === "result" && (
-        <div style={{
-          position: "relative", zIndex: 10,
-          padding: "40px 24px 60px", maxWidth: 800, margin: "0 auto",
-        }}>
-          {/* Export button top */}
-          <div style={{
-            display: "flex", justifyContent: "flex-end", marginBottom: 16,
-            animation: "fadeInUp 0.6s ease both",
-          }}>
+        <div style={{ position: "relative", zIndex: 10, padding: "40px 24px 60px", maxWidth: 800, margin: "0 auto" }}>
+          {/* Export button */}
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16, animation: "fadeInUp 0.6s ease both" }}>
             <button onClick={exportPDF} disabled={exporting} style={{
               display: "inline-flex", alignItems: "center", gap: 8,
-              background: "rgba(255,255,255,0.06)",
-              border: "1px solid rgba(113,160,198,0.15)",
+              background: "rgba(255,255,255,0.06)", border: "1px solid rgba(113,160,198,0.15)",
               color: "rgba(255,255,255,0.7)", padding: "10px 20px",
               borderRadius: 10, fontSize: 13, fontWeight: 600,
               cursor: exporting ? "wait" : "pointer",
-              transition: "all 0.2s ease",
             }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -514,299 +831,183 @@ export default function Ledningskollen() {
             </button>
           </div>
 
-          {/* Exportable content - uses data-pdf-export attribute for light mode during capture */}
-          <style>{`
-            [data-pdf-export="true"] {
-              background: #F2F2F2 !important;
-              color: #424242 !important;
-              padding: 32px !important;
-              border-radius: 0 !important;
-            }
-            [data-pdf-export="true"] * {
-              color: #424242 !important;
-            }
-            [data-pdf-export="true"] [data-pdf-heading] {
-              color: #002E5B !important;
-            }
-            [data-pdf-export="true"] [data-pdf-level-color] {
-              color: var(--level-color) !important;
-            }
-            [data-pdf-export="true"] [data-pdf-card] {
-              background: #ffffff !important;
-              border-color: #e5e7eb !important;
-            }
-            [data-pdf-export="true"] [data-pdf-label] {
-              color: #71A0C6 !important;
-            }
-            [data-pdf-export="true"] [data-pdf-muted] {
-              color: #71A0C6 !important;
-            }
-            [data-pdf-export="true"] [data-pdf-bar-bg] {
-              background: #e5e7eb !important;
-            }
-            [data-pdf-export="true"] [data-pdf-cta] {
-              background: #002E5B !important;
-              border-color: #002E5B !important;
-            }
-            [data-pdf-export="true"] [data-pdf-cta] * {
-              color: #fff !important;
-            }
-            [data-pdf-export="true"] [data-pdf-bold] {
-              color: #002E5B !important;
-            }
-            [data-pdf-export="true"] [data-pdf-accent] {
-              color: #D44B36 !important;
-            }
-            [data-pdf-export="true"] [data-pdf-header] {
-              color: #002E5B !important;
-              font-weight: 700 !important;
-            }
-          `}</style>
-          <div ref={resultRef}>
-            {/* PDF Header - only visible in export */}
-            <div data-pdf-heading style={{
-              textAlign: "center", marginBottom: 8, display: "none",
+          {/* Level header */}
+          <div style={{ textAlign: "center", marginBottom: 40, animation: "fadeInUp 0.6s ease both" }}>
+            <div style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              background: level.bg, border: `1px solid ${level.color}33`,
+              borderRadius: 100, padding: "6px 16px 6px 12px",
+              fontSize: 12, fontWeight: 600, color: level.color, marginBottom: 24,
             }}>
-              <style>{`
-                [data-pdf-export="true"] [data-pdf-title-bar] {
-                  display: block !important;
-                  text-align: center;
-                  margin-bottom: 24px;
-                  padding-bottom: 16px;
-                  border-bottom: 2px solid #002E5B;
-                }
-              `}</style>
-              <div data-pdf-title-bar style={{ display: "none" }}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: "#002E5B", fontFamily: "'Playfair Display', serif" }}>
-                  Ledningspuls
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: level.color }} />
+              Er mognadsnivå
+            </div>
+            <h2 style={{
+              fontFamily: "'Playfair Display', serif",
+              fontSize: "clamp(28px, 4vw, 42px)", fontWeight: 800, lineHeight: 1.15, marginBottom: 8,
+            }}>
+              <span style={{ color: level.color }}>{level.label}</span>
+            </h2>
+            <p style={{ fontSize: 15, color: "rgba(255,255,255,0.5)", maxWidth: 500, margin: "0 auto" }}>
+              {level.desc}
+            </p>
+          </div>
+
+          {/* Score + Spider chart */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 24, animation: "fadeInUp 0.6s ease 0.15s both" }}>
+            <div style={{
+              background: "rgba(255,255,255,0.03)", border: "1px solid rgba(113,160,198,0.1)",
+              borderRadius: 16, padding: 28,
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            }}>
+              <CircularProgress score={totalScore} color={level.color} />
+              <div style={{ marginTop: 16, textAlign: "center" }}>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>
+                  Totalpoäng
                 </div>
-                <div style={{ fontSize: 11, color: "#71A0C6", marginTop: 4 }}>
-                  Digital mognadsmätning &bull; Curago
-                </div>
+              </div>
+              <div style={{ display: "flex", gap: 4, marginTop: 20, width: "100%" }}>
+                {LEVELS.map(l => (
+                  <div key={l.label} style={{
+                    flex: 1, textAlign: "center", padding: "6px 2px",
+                    background: totalScore >= l.min && totalScore <= l.max ? l.bg : "rgba(255,255,255,0.02)",
+                    border: totalScore >= l.min && totalScore <= l.max ? `1px solid ${l.color}44` : "1px solid transparent",
+                    borderRadius: 6,
+                  }}>
+                    <div style={{ fontSize: 8, fontWeight: 700, color: l.color }}>{l.min}–{l.max}</div>
+                    <div style={{ fontSize: 7, color: "rgba(255,255,255,0.4)", marginTop: 1 }}>{l.label}</div>
+                  </div>
+                ))}
               </div>
             </div>
 
             <div style={{
-              textAlign: "center", marginBottom: 40,
-              animation: "fadeInUp 0.6s ease both",
+              background: "rgba(255,255,255,0.03)", border: "1px solid rgba(113,160,198,0.1)",
+              borderRadius: 16, padding: "20px 12px",
+              display: "flex", flexDirection: "column", alignItems: "center",
             }}>
-              <div data-pdf-label style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                background: level.bg, border: `1px solid ${level.color}33`,
-                borderRadius: 100, padding: "6px 16px 6px 12px",
-                fontSize: 12, fontWeight: 600, color: level.color, marginBottom: 24,
-              }}>
-                <div style={{ width: 6, height: 6, borderRadius: "50%", background: level.color }} />
-                Er mognadsnivå
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, textAlign: "center", marginBottom: 4 }}>
+                Dimensionsprofil
               </div>
-              <h2 data-pdf-level-color style={{
-                fontFamily: "'Playfair Display', serif",
-                fontSize: "clamp(28px, 4vw, 42px)", fontWeight: 800,
-                lineHeight: 1.15, marginBottom: 8,
-                "--level-color": level.color,
-              }}>
-                <span style={{ color: level.color }}>{level.label}</span>
-              </h2>
-              <p data-pdf-muted style={{ fontSize: 15, color: "rgba(255,255,255,0.5)", maxWidth: 500, margin: "0 auto" }}>
-                {level.desc}
-              </p>
-            </div>
-
-            <div style={{
-              display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 24,
-              animation: "fadeInUp 0.6s ease 0.15s both",
-            }}>
-              <div data-pdf-card style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(113,160,198,0.1)",
-                borderRadius: 16, padding: 28,
-                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-              }}>
-                <CircularProgress score={totalScore} color={level.color} />
-                <div style={{ marginTop: 16, textAlign: "center" }}>
-                  <div data-pdf-label style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>
-                    Totalpoäng
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 4, marginTop: 20, width: "100%" }}>
-                  {LEVELS.map(l => (
-                    <div key={l.label} data-pdf-card style={{
-                      flex: 1, textAlign: "center", padding: "6px 2px",
-                      background: totalScore >= l.min && totalScore <= l.max ? l.bg : "rgba(255,255,255,0.02)",
-                      border: totalScore >= l.min && totalScore <= l.max ? `1px solid ${l.color}44` : "1px solid transparent",
-                      borderRadius: 6,
-                    }}>
-                      <div data-pdf-accent style={{ fontSize: 8, fontWeight: 700, color: l.color }}>{l.min}–{l.max}</div>
-                      <div data-pdf-muted style={{ fontSize: 7, color: "rgba(255,255,255,0.4)", marginTop: 1 }}>{l.label}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div data-pdf-card style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(113,160,198,0.1)",
-                borderRadius: 16, padding: "20px 12px",
-              }}>
-                <div data-pdf-label style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, textAlign: "center", marginBottom: 4 }}>
-                  Dimensionsprofil
-                </div>
-                <ResponsiveContainer width="100%" height={220}>
-                  <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="70%">
-                    <PolarGrid stroke="rgba(113,160,198,0.2)" />
-                    <PolarAngleAxis
-                      dataKey="subject"
-                      tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }}
-                    />
-                    <PolarRadiusAxis
-                      angle={90} domain={[0, 100]}
-                      tick={false} axisLine={false}
-                    />
-                    <Radar
-                      name="Resultat" dataKey="value"
-                      stroke={level.color} fill={level.color} fillOpacity={0.25}
-                      strokeWidth={2}
-                    />
-                  </RadarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            <div data-pdf-card style={{
-              background: "rgba(255,255,255,0.03)",
-              border: "1px solid rgba(113,160,198,0.1)",
-              borderRadius: 16, padding: 28, marginBottom: 24,
-              animation: "fadeInUp 0.6s ease 0.3s both",
-            }}>
-              <div data-pdf-label style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 20 }}>
-                Resultat per dimension
-              </div>
-              {dimScores.map((d, i) => {
-                const colors = ["#4ade80", "#60a5fa", "#c084fc", "#D44B36"];
-                return (
-                  <div key={d.key} style={{ marginBottom: 16 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                      <span style={{ fontSize: 13, color: "rgba(255,255,255,0.7)" }}>{d.label}</span>
-                      <span style={{ fontSize: 13, color: colors[i], fontWeight: 700 }}>{d.score}/{d.max}</span>
-                    </div>
-                    <div data-pdf-bar-bg style={{ height: 8, borderRadius: 4, background: "rgba(113,160,198,0.08)" }}>
-                      <div style={{
-                        height: "100%", borderRadius: 4, background: colors[i],
-                        width: `${(d.score / d.max) * 100}%`, transition: "width 1s cubic-bezier(0.4,0,0.2,1)"
-                      }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {(() => {
-              const pct = Math.round((weakest.score / weakest.max) * 100);
-              return (
-                <div data-pdf-card style={{
-                  background: "rgba(212,75,54,0.06)",
-                  border: "1px solid rgba(212,75,54,0.15)",
-                  borderRadius: 16, padding: 24, marginBottom: 24,
-                  animation: "fadeInUp 0.6s ease 0.4s both",
-                }}>
-                  <div data-pdf-accent style={{ fontSize: 13, fontWeight: 600, color: "#D44B36", marginBottom: 6 }}>
-                    Område att prioritera
-                  </div>
-                  <p style={{ fontSize: 14, color: "rgba(255,255,255,0.65)", lineHeight: 1.6, margin: 0 }}>
-                    Er lägsta dimension är <strong data-pdf-bold style={{ color: "#fff" }}>{weakest.label}</strong> ({pct}%).
-                    En fördjupad mognadsmätning kan identifiera de konkreta åtgärder som skapar mest effekt.
-                  </p>
-                </div>
-              );
-            })()}
-
-            {/* AI Analysis */}
-            <div data-pdf-card style={{
-              background: "rgba(113,160,198,0.05)",
-              border: "1px solid rgba(113,160,198,0.15)",
-              borderRadius: 16, padding: 28, marginBottom: 24,
-              animation: "fadeInUp 0.6s ease 0.5s both",
-            }}>
-              <div style={{
-                display: "flex", alignItems: "center", gap: 8, marginBottom: 16,
-              }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93L12 22" />
-                  <path d="M12 2a4 4 0 0 0-4 4c0 1.95 1.4 3.58 3.25 3.93" />
-                  <path d="M16 16h2a2 2 0 0 1 0 4h-2" />
-                  <path d="M8 16H6a2 2 0 0 0 0 4h2" />
-                  <path d="M9 12h6" />
-                </svg>
-                <div data-pdf-label style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5 }}>
-                  AI-analys av ert resultat
-                </div>
-              </div>
-              {aiLoading ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0" }}>
-                  <div style={{
-                    width: 20, height: 20, border: "2px solid rgba(96,165,250,0.3)",
-                    borderTopColor: "#60a5fa", borderRadius: "50%",
-                    animation: "spin 0.8s linear infinite",
-                  }} />
-                  <span style={{ fontSize: 14, color: "rgba(255,255,255,0.5)" }}>Analyserar ert resultat...</span>
-                  <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-                </div>
-              ) : aiAnalysis ? (
-                <div style={{ fontSize: 14, color: "rgba(255,255,255,0.7)", lineHeight: 1.7 }}>
-                  {formatAiAnalysis(aiAnalysis)}
-                </div>
-              ) : null}
-            </div>
-
-            {/* Contact CTA with QR code */}
-            <div data-pdf-cta style={{
-              background: "linear-gradient(135deg, rgba(0,46,91,0.3), rgba(0,46,91,0.1))",
-              border: "1px solid rgba(0,46,91,0.3)",
-              borderRadius: 16, padding: 32,
-              display: "flex", alignItems: "center", gap: 32,
-              animation: "fadeInUp 0.6s ease 0.6s both",
-            }}>
-              <div style={{ flex: 1, textAlign: "center" }}>
-                <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>
-                  Vill ni gå djupare?
-                </h3>
-                <p style={{ fontSize: 14, color: "rgba(255,255,255,0.55)", marginBottom: 24, maxWidth: 460, margin: "0 auto 24px" }}>
-                  Vill ni ta er digitala utvecklingsförmåga vidare och accelerera? Kontakta oss på Curago för en dialog om er utmaning, vilka nyttor vi kan hjälpa er att skapa och vad det kan ge för fördelar åt er verksamhet.
-                </p>
-                <a href="mailto:info@curago.se" style={{
-                  display: "inline-block",
-                  background: "linear-gradient(135deg, #D44B36, #e8654f)",
-                  color: "#fff", padding: "14px 40px", borderRadius: 12,
-                  fontSize: 15, fontWeight: 700, textDecoration: "none",
-                  boxShadow: "0 4px 24px rgba(212,75,54,0.3)",
-                }}>
-                  Kontakta Curago →
-                </a>
-              </div>
-              <div style={{
-                flexShrink: 0, display: "flex", flexDirection: "column",
-                alignItems: "center", gap: 8,
-              }}>
-                <div style={{
-                  background: "#fff", borderRadius: 12, padding: 12,
-                }}>
-                  <QRCodeSVG
-                    value="mailto:info@curago.se"
-                    size={100}
-                    bgColor="#ffffff"
-                    fgColor="#03070C"
-                    level="M"
-                  />
-                </div>
-                <span data-pdf-muted style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>
-                  info@curago.se
-                </span>
-              </div>
+              <SpiderChart data={radarData} color={level.color} size={220} />
             </div>
           </div>
 
-          {/* Non-exportable buttons */}
-          <div style={{ textAlign: "center", marginTop: 24, display: "flex", justifyContent: "center", gap: 16 }}>
+          {/* Dimension bars */}
+          <div style={{
+            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(113,160,198,0.1)",
+            borderRadius: 16, padding: 28, marginBottom: 24,
+            animation: "fadeInUp 0.6s ease 0.3s both",
+          }}>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 20 }}>
+              Resultat per dimension
+            </div>
+            {dimScores.map((d, i) => (
+              <div key={d.key} style={{ marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 13, color: "rgba(255,255,255,0.7)" }}>{d.label}</span>
+                  <span style={{ fontSize: 13, color: DIM_COLORS[i], fontWeight: 700 }}>{d.score}/{d.max}</span>
+                </div>
+                <div style={{ height: 8, borderRadius: 4, background: "rgba(113,160,198,0.08)" }}>
+                  <div style={{
+                    height: "100%", borderRadius: 4, background: DIM_COLORS[i],
+                    width: `${(d.score / d.max) * 100}%`, transition: "width 1s cubic-bezier(0.4,0,0.2,1)"
+                  }} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Priority area */}
+          {(() => {
+            const pct = Math.round((weakest.score / weakest.max) * 100);
+            return (
+              <div style={{
+                background: "rgba(212,75,54,0.06)", border: "1px solid rgba(212,75,54,0.15)",
+                borderRadius: 16, padding: 24, marginBottom: 24,
+                animation: "fadeInUp 0.6s ease 0.4s both",
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#D44B36", marginBottom: 6 }}>
+                  Område att prioritera
+                </div>
+                <p style={{ fontSize: 14, color: "rgba(255,255,255,0.65)", lineHeight: 1.6, margin: 0 }}>
+                  Er lägsta dimension är <strong style={{ color: "#fff" }}>{weakest.label}</strong> ({pct}%).
+                  En fördjupad mognadsmätning kan identifiera de konkreta åtgärder som skapar mest effekt.
+                </p>
+              </div>
+            );
+          })()}
+
+          {/* AI Analysis */}
+          <div style={{
+            background: "rgba(113,160,198,0.05)", border: "1px solid rgba(113,160,198,0.15)",
+            borderRadius: 16, padding: 28, marginBottom: 24,
+            animation: "fadeInUp 0.6s ease 0.5s both",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93L12 22" />
+                <path d="M12 2a4 4 0 0 0-4 4c0 1.95 1.4 3.58 3.25 3.93" />
+                <path d="M16 16h2a2 2 0 0 1 0 4h-2" />
+                <path d="M8 16H6a2 2 0 0 0 0 4h2" />
+                <path d="M9 12h6" />
+              </svg>
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5 }}>
+                AI-analys av ert resultat
+              </div>
+            </div>
+            {aiLoading ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0" }}>
+                <div style={{
+                  width: 20, height: 20, border: "2px solid rgba(96,165,250,0.3)",
+                  borderTopColor: "#60a5fa", borderRadius: "50%",
+                  animation: "spin 0.8s linear infinite",
+                }} />
+                <span style={{ fontSize: 14, color: "rgba(255,255,255,0.5)" }}>Analyserar ert resultat...</span>
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+              </div>
+            ) : aiAnalysis ? (
+              <div style={{ fontSize: 14, color: "rgba(255,255,255,0.7)", lineHeight: 1.7 }}>
+                {formatAiAnalysis(aiAnalysis)}
+              </div>
+            ) : null}
+          </div>
+
+          {/* CTA */}
+          <div style={{
+            background: "linear-gradient(135deg, rgba(0,46,91,0.3), rgba(0,46,91,0.1))",
+            border: "1px solid rgba(0,46,91,0.3)",
+            borderRadius: 16, padding: 32,
+            display: "flex", alignItems: "center", gap: 32,
+            animation: "fadeInUp 0.6s ease 0.6s both",
+          }}>
+            <div style={{ flex: 1, textAlign: "center" }}>
+              <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>
+                Vill ni gå djupare?
+              </h3>
+              <p style={{ fontSize: 14, color: "rgba(255,255,255,0.55)", marginBottom: 24, maxWidth: 460, margin: "0 auto 24px" }}>
+                Vill ni ta er digitala utvecklingsförmåga vidare och accelerera? Kontakta oss på Curago för en dialog om er utmaning, vilka nyttor vi kan hjälpa er att skapa och vad det kan ge för fördelar åt er verksamhet.
+              </p>
+              <a href="mailto:info@curago.se" style={{
+                display: "inline-block",
+                background: "linear-gradient(135deg, #D44B36, #e8654f)",
+                color: "#fff", padding: "14px 40px", borderRadius: 12,
+                fontSize: 15, fontWeight: 700, textDecoration: "none",
+                boxShadow: "0 4px 24px rgba(212,75,54,0.3)",
+              }}>
+                Kontakta Curago →
+              </a>
+            </div>
+            <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 12 }}>
+                <QRCodeSVG value="mailto:info@curago.se" size={100} bgColor="#ffffff" fgColor="#03070C" level="M" />
+              </div>
+              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>info@curago.se</span>
+            </div>
+          </div>
+
+          {/* Restart */}
+          <div style={{ textAlign: "center", marginTop: 24 }}>
             <button onClick={restart} style={{
               background: "transparent", border: "none",
               color: "rgba(255,255,255,0.3)", fontSize: 13, cursor: "pointer",
