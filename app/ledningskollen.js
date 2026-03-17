@@ -39,10 +39,11 @@ function getLevel(score) {
 }
 
 /* Pure SVG radar/spider chart */
-function SpiderChart({ data, color, size = 220 }) {
+function SpiderChart({ data, color, size = 260 }) {
+  const padding = 50; // space for labels
   const cx = size / 2;
   const cy = size / 2;
-  const r = size * 0.35;
+  const r = (size - padding * 2) / 2;
   const n = data.length;
   const angleStep = (2 * Math.PI) / n;
   const startAngle = -Math.PI / 2;
@@ -53,62 +54,109 @@ function SpiderChart({ data, color, size = 220 }) {
     return [cx + dist * Math.cos(angle), cy + dist * Math.sin(angle)];
   };
 
-  const gridLevels = [25, 50, 75, 100];
+  const gridLevels = [20, 40, 60, 80, 100];
+
+  // Label positioning with manual offsets per quadrant
+  const getLabelAnchor = (index) => {
+    const angle = startAngle + index * angleStep;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    // Top/bottom vs left/right
+    if (Math.abs(sin) < 0.3) return "middle"; // top or bottom
+    return cos > 0 ? "start" : "end";
+  };
 
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      {/* Grid circles */}
-      {gridLevels.map(level => {
+    <svg width="100%" viewBox={`0 0 ${size} ${size}`} style={{ maxWidth: size }}>
+      {/* Filled grid rings for depth */}
+      {gridLevels.map((level, li) => {
         const points = Array.from({ length: n }, (_, i) => getPoint(i, level));
         return (
           <polygon
             key={level}
             points={points.map(p => p.join(",")).join(" ")}
-            fill="none"
-            stroke="rgba(113,160,198,0.15)"
-            strokeWidth="0.5"
+            fill={li === 0 ? "rgba(113,160,198,0.03)" : "none"}
+            stroke="rgba(113,160,198,0.12)"
+            strokeWidth="0.7"
+            strokeDasharray={li < gridLevels.length - 1 ? "2,3" : "none"}
           />
         );
       })}
       {/* Axis lines */}
       {Array.from({ length: n }, (_, i) => {
         const [ex, ey] = getPoint(i, 100);
-        return <line key={i} x1={cx} y1={cy} x2={ex} y2={ey} stroke="rgba(113,160,198,0.1)" strokeWidth="0.5" />;
+        return <line key={i} x1={cx} y1={cy} x2={ex} y2={ey} stroke="rgba(113,160,198,0.08)" strokeWidth="0.7" />;
       })}
-      {/* Data polygon */}
+      {/* Data area fill */}
       <polygon
         points={data.map((d, i) => getPoint(i, d.value).join(",")).join(" ")}
         fill={color}
-        fillOpacity="0.2"
+        fillOpacity="0.15"
+        stroke="none"
+      />
+      {/* Data area stroke */}
+      <polygon
+        points={data.map((d, i) => getPoint(i, d.value).join(",")).join(" ")}
+        fill="none"
         stroke={color}
         strokeWidth="2"
+        strokeLinejoin="round"
       />
-      {/* Data points */}
+      {/* Data points with glow */}
       {data.map((d, i) => {
         const [px, py] = getPoint(i, d.value);
-        return <circle key={i} cx={px} cy={py} r="3" fill={color} />;
+        return (
+          <g key={i}>
+            <circle cx={px} cy={py} r="6" fill={color} fillOpacity="0.15" />
+            <circle cx={px} cy={py} r="3" fill={color} />
+            <circle cx={px} cy={py} r="1.5" fill="#fff" fillOpacity="0.6" />
+          </g>
+        );
       })}
-      {/* Labels */}
+      {/* Value labels on data points */}
       {data.map((d, i) => {
-        const [lx, ly] = getPoint(i, 130);
+        const angle = startAngle + i * angleStep;
+        const valueDist = Math.max(d.value + 12, 25);
+        const vx = cx + ((valueDist) / 100) * r * Math.cos(angle);
+        const vy = cy + ((valueDist) / 100) * r * Math.sin(angle);
+        return (
+          <text
+            key={`val-${i}`} x={vx} y={vy}
+            textAnchor="middle" dominantBaseline="middle"
+            fill={color} fontSize="9" fontWeight="700"
+            fontFamily="'Trebuchet MS', sans-serif"
+          >
+            {d.value}%
+          </text>
+        );
+      })}
+      {/* Dimension labels */}
+      {data.map((d, i) => {
+        const angle = startAngle + i * angleStep;
+        const labelDist = r + 22;
+        const lx = cx + labelDist * Math.cos(angle);
+        const ly = cy + labelDist * Math.sin(angle);
+        const anchor = getLabelAnchor(i);
+
         const words = d.subject.split(" ");
-        // Split into max 2 lines if label is long
         let lines;
-        if (d.subject.length > 12 && words.length >= 2) {
-          const mid = Math.ceil(words.length / 2);
-          lines = [words.slice(0, mid).join(" "), words.slice(mid).join(" ")];
+        if (words.length >= 2) {
+          lines = words.length === 2
+            ? [words[0], words[1]]
+            : [words.slice(0, Math.ceil(words.length / 2)).join(" "), words.slice(Math.ceil(words.length / 2)).join(" ")];
         } else {
           lines = [d.subject];
         }
+
         return (
           <text
             key={i} x={lx} y={ly}
-            textAnchor="middle" dominantBaseline="middle"
-            fill="rgba(255,255,255,0.5)" fontSize="9"
+            textAnchor={anchor} dominantBaseline="middle"
+            fill="rgba(255,255,255,0.6)" fontSize="10" fontWeight="500"
             fontFamily="'Trebuchet MS', sans-serif"
           >
             {lines.map((line, li) => (
-              <tspan key={li} x={lx} dy={li === 0 ? -(lines.length - 1) * 5 : 11}>
+              <tspan key={li} x={lx} dy={li === 0 ? -(lines.length - 1) * 6 : 13}>
                 {line}
               </tspan>
             ))}
@@ -909,7 +957,7 @@ export default function Ledningskollen() {
               <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1.5, textAlign: "center", marginBottom: 4 }}>
                 Dimensionsprofil
               </div>
-              <SpiderChart data={radarData} color={level.color} size={220} />
+              <SpiderChart data={radarData} color={level.color} size={280} />
             </div>
           </div>
 
